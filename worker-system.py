@@ -1,35 +1,41 @@
 import sys
 sys.path.insert(0, 'C:\\Users\\Rukman\\Desktop\\project') #this the path were datafame class file is placed
-import json
 from redis import Redis
 from calendar import timegm
 from queue import Queue
+import time
 from time import strptime
 from dataframe import modify_dataframe
-from threading import Lock, Thread
+from threading import Thread
 
 #variables
 filePath = 'C:\\Users\\Rukman\\Desktop\\womens-shoes-prices\\7210_1.csv'
 threadCount = 5
+pipeline_limit = 200
 
 redisComm= Redis() #uses default port 6379
-pipe = redisComm.pipeline()
 taskQueue = Queue()
-lock = Lock()
 
 def worker_send_record(queue):
+    pipe = redisComm.pipeline()
     while True:
         row = queue.get()
+        #'id' as key and 'entire row' as value
         pipe.append(str(row['id']), str(row))
+
+        #'date' as name of the sorted set and 'id' & 'epoch' time of dateadded timestamp as value
         pipe.zadd(str(row['dateAdded'].split('T')[0]),\
                   {str(row['id']) : timestamp_converstion(str(row['dateAdded']))})
+        
+        #colors - 'color' along with text ':color' is set as name of sorted set
         handle_colors(row, pipe)
+        
+        #brands - 'brand' along with text '_brand' is set as name of the sorted set
+        #increment the sorted set with brand name everytime an item from that brand is added
         pipe.zincrby(str(row['dateAdded']).split('T')[0]+'_brand', 1, str(row['brand']))
-        if len(pipe) > 20 or taskQueue.empty():
+        if len(pipe) > pipeline_limit or taskQueue.empty():
             try:
-                lock.acquire(True)
                 res = pipe.execute()
-                lock.release()
             except Exception as e:
                  print(e)
                  return 'failure'
@@ -50,8 +56,11 @@ def handle_colors(row, pipe):
                                    timestamp_converstion(str(row['dateAdded']))})
 
 if __name__ == "__main__":
-
+    
+    #csv to data frame, removing rows with null values & duplicates
     DF = modify_dataframe(filePath)
+
+    #returs a list with rows as dictionary
     rows = DF.getRowsAsList()
 
     #start processing task from queue in multiple threads
@@ -64,5 +73,6 @@ if __name__ == "__main__":
     for row in rows:
         taskQueue.put(row)
 
-    #stop the threads when all the tasks in the queue are completed.
+    #block the threads until all the tasks in the queue are completed.
     taskQueue.join()
+
