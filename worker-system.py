@@ -13,11 +13,10 @@ filePath = 'C:\\Users\\Rukman\\Desktop\\womens-shoes-prices\\7210_1.csv'
 threadCount = 5
 pipeline_limit = 200
 
-redisComm= Redis() #uses default port 6379
 taskQueue = Queue()
 
 def worker_send_record(queue):
-    pipe = redisComm.pipeline()
+    pipe = Redis().pipeline(transaction = False)
     while True:
         row = queue.get()
         #'id' as key and 'entire row' as value
